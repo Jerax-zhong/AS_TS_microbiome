@@ -112,7 +112,7 @@ fit_data2 = Maaslin2(
     analysis_method = "LM",normalization = "clr",
     transform = "NONE",correction = "BH",max_significance = 0.1,cores =6 )
 ```
-
+```
 ## Alpha diversity
 library(lmerTest)
 library(parameters)
