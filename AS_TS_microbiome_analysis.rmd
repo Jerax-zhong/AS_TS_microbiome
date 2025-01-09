@@ -1,0 +1,267 @@
+---
+title: "KLZ_AS_DNA analysis markdown"
+output: html_notebook: default
+   html_document: default
+---
+
+##Loading ABFV data
+
+```{r}
+setwd("/home/zhong/Data/Other/Nutstore/KLZ_AS_DNA")
+pacman::p_load(tidyverse, reshape2,scales, ggpubr, psych, vegan, patchwork, ggsci,philentropy,phyloseq,sjPlot,philentropy,parameters)
+load(".RData")
+abfv=read_delim("merge_reassign3.tsv",delim = "\t") %>% dplyr::select(!contains("NC")) %>% dplyr::select(!contains("H2O"),-KLZ_596,-KLZ_597,-KLZ_598)
+colnames(abfv)[1:4]=c("taxid","rank","tax_name","path")
+genus=filter(abfv,rank=="genus") %>% .[rowSums(.>2)>5,]%>% .[!duplicated(.$tax_name),] %>% dplyr::select(-KLZ_547)  %>% column_to_rownames("tax_name") %>% dplyr::select(-taxid,-rank,-path)  %>% as.matrix()%>% prop.table(.,2) %>% .[rowSums(.>0.01)>0,] %>% prop.table(.,2) %>% as.data.frame() %>% .[,metadata$Sample_ID]
+species=filter(abfv,rank=="species") %>%select(-KLZ_547) %>%  .[rowSums(.>2)>5,]%>% .[!duplicated(.$tax_name),] %>% column_to_rownames("tax_name") %>% dplyr::select(-taxid,-rank,-path) %>% as.matrix() %>% prop.table(.,2) %>% as.data.frame()
+
+```
+
+##Loading pathway and metabolic data
+
+```{r}
+pathway=read.delim("KLZ_AS_pathabundance_CPM.tsv",sep = "\t")%>% column_to_rownames("Pathway") %>% .[-c(1:2),] %>% as.matrix() %>%  as.data.frame() %>% dplyr::select(-KLZ_547)
+pathway_l2=read.delim("KLZ_pathabundance_filter_CPM.tsv.level_2.tsv",sep = "\t")%>% column_to_rownames("Pathway")  %>% as.data.frame() %>% dplyr::select(-KLZ_547) %>% .[,colnames(pathway)]
+metabolite=read.csv("MelonnPan_KLZ.csv") %>% column_to_rownames("ID") %>% as.matrix() %>% t() %>% as.data.frame()
+```
+
+##PCoA
+
+```{r,fig.show='hold',fig.width=7, fig.height=6}
+## PcoA
+a <- filter(abfv,rank=="species") %>% .[rowSums(.>2)>5,] %>% .[!duplicated(.$tax_name),] %>% column_to_rownames("tax_name") %>% dplyr::select(-taxid,-rank)%>% apply(.,2,function(x) x/sum(x)) %>% as.data.frame()
+ df2 <- JSD(t(genus[,ll] %>% as.matrix() %>% prop.table(.,2)))
+ colnames(df2) <- ll
+ rownames(df2) <- ll
+pcoa <- cmdscale(df2, k = 3, eig = TRUE)
+# pcoa          <- cmdscale(df1, k = 2, eig = TRUE)
+ fit           <- envfit(pcoa,t(genus[rowSums(genus>0.01)>20,ll]),)
+ fit_df            <- data.frame((fit$vectors)$arrows, (fit$vectors)$r, (fit$vectors)$pvals) %>% rownames_to_column()
+ colnames(fit_df)[4:5] <- c("r","p")
+ a=filter(fit_df,p<0.05) %>% arrange(desc(abs(r))) %>% head(7) %>% .[,1]
+ fit_val <- vegan::scores(fit, display = c("vectors"))
+ fit_val <- fit_val*vegan::ordiArrowMul(fit_val,fill = 0.6)
+ fit_val1 <- fit_val %>% as.data.frame() %>%.[as.vector(a),] %>% rownames_to_column("tax")
+pcoa_eig <- (pcoa$eig)[1:3] / sum(pcoa$eig[pcoa$eig>0])
+tmp_df <- pcoa$points[, 1:3] %>% as.data.frame()
+colnames(tmp_df) <- c("PCoA1", "PCoA2", "PCoA3")
+#tmp_df1 <-  tmp_df %>% rownames_to_column("sss") %>% mutate(ss=gsub("^...","",sss)) %>% right_join(metadata1,.)
+tmp_df1 <- tmp_df %>%
+  rownames_to_column("Sample_ID") %>%
+  right_join(metadata, .) %>%
+  as.data.frame()
+#tmp_df1$group=metadata_arg[tmp_df1$Sample_ID,"group"]
+tmp_df1$group=NA
+tmp_df1$group[tmp_df1$Tazobactam_time==0]="Days=0"
+tmp_df1$group[tmp_df1$Tazobactam_time>0]="0<Days<3"
+tmp_df1$group[tmp_df1$Tazobactam_time>3]="4<Days<7"
+tmp_df1$group[tmp_df1$Tazobactam_time>7]="Days>7"
+tmp_df1$group=factor(tmp_df1$group,levels = c("Days=0","0<Days<3","4<Days<7","Days>7"))
+#tmp_df1 <- tmp_df1 %>% mutate(ii=str_sub(sss,start = 1,end = 2)) %>% mutate(nn=paste(ii,group,sep = "_"))
+df1 <- merge(tmp_df1, aggregate(cbind(mean.x = PCoA1, mean.y = PCoA2) ~ group, tmp_df1, median), by = "group")
+mm=list(c("Days=0" ,  "0<Days<3"),c("0<Days<3", "4<Days<7"),c("4<Days<7","Days>7" ))
+
+ggplot(df1, aes(PCoA1, PCoA2)) +
+    geom_point(aes(color = nn,shape=ii),size = 1.9,alpha=0.2) +
+    geom_segment(aes(x = mean.x, y = mean.y, xend = PCoA1, yend = PCoA2,color=nn), alpha = 0.06) +theme_bw()+ scale_fill_viridis_d()+scale_color_viridis_d()+geom_point(data = select(df1,nn,mean.x,mean.y) %>% distinct(),aes(mean.x,mean.y,fill=nn),size=6,shape=21,alpha=0.65)+
+    xlab(paste("PCoA1", " (", round(pcoa_eig[1] * 100, 1), "%", ")", sep = "")) +
+    ylab(paste("PCoA2", " (", round(pcoa_eig[2] * 100, 1), "%", ")", sep = ""))+geom_segment(data = dd1,aes(x=mean.x, y = mean.y, xend = to.x,yend=to.y,color=cc),arrow = arrow(length = unit(0.3, "cm")),size=1.7,alpha=0.7)
+
+## Adonis/permanova
+adonis2(JSD(t(genus[, ll] %>% as.matrix())) ~ Age + Gender + CORTICOSTEROID + Death + Treatment  +COMORBIDITY+ Outcome28+antb_use+sam2adm, metadata[ll, ], permutations = 1000,by = "margin")
+as_adonis=df
+ts_adonis=df1
+ggplot()+geom_bar(data=df,aes(x=Variable,y=R2,fill=group),stat="identity")+
+  geom_bar(data=df1,aes(x=Variable,y=R2,fill=group),stat="identity")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1), axis.ticks.x = element_blank(), plot.margin = unit(c(0, 0, 0, 0), "cm"))+coord_flip()+bbc_style()+
+  scale_fill_manual(values = c("AS" = "#1380A1", "TS" = "#FAAB18"))+xlab("R2")+ylim(-0.05,0.071)
+
+```
+
+##MaAsLin2
+
+```{r}
+library(Maaslin2)# 
+
+
+  df=filter(abfv,rank=="genus") %>%dplyr::select(-KLZ_547) %>%  .[rowSums(.>2)>5,]%>% .[!duplicated(.$tax_name),] %>% column_to_rownames("tax_name") %>% dplyr::select(-taxid,-rank,-path) %>% as.data.frame() %>% .[rownames(genus[rowSums(genus>0.01)>20,]),]
+pathway1=read.delim("KLZ_pathabundance_filter_CPM.tsv",sep = "\t")%>% column_to_rownames("Pathway") %>% .[-c(1:2),] %>% as.data.frame() %>% dplyr::select(-KLZ_547) %>% dplyr::select(-pathway_rm_list)
+
+dd=microbiome::transform(genus,"clr") %>% t() %>% as.data.frame()
+
+ll=map_t1$Sample_ID
+input_data <- genus[,ll] %>% .[rowSums(.>0.01)>0,]
+metadata_curated <- metadata_arg[colnames(input_data),] %>% select(Individual_ID,Gender,Age,Treatment,Death,CORTICOSTEROID,COMORBIDITY,sam2adm,ANTIBODY,rownames(Igg),Meropenem,Linezolid,rownames(cytokine),rownames(blood),antb_use,Outcome28,colnames(metadata)[c(134,136,138,140,142,144:148)])
+metadata_curated$Death=as.factor(metadata_curated$Death)
+metadata_curated$Gender=as.factor(metadata_curated$Gender)
+metadata_curated$Treatment=as.factor(metadata_curated$Treatment)
+metadata_curated$CORTICOSTEROID=as.factor(metadata_curated$CORTICOSTEROID)
+metadata_curated$COMORBIDITY=as.factor(metadata_curated$COMORBIDITY)
+metadata_curated$Meropenem=as.factor(metadata_curated$Meropenem)
+metadata_curated$Linezolid=as.factor(metadata_curated$Linezolid)
+#metadata_curated <- metadata_curated %>% mutate_if(is.numeric,function(x) log1p(x+1))
+
+##counts
+fit_data2 = Maaslin2(
+    input_data =input_data, 
+    input_metadata = metadata_curated, 
+    fixed_effects = c("Age","Gender","Tazobactam_time","Ceftazidime_time","Outcome28" ,"CORTICOSTEROID","Death","Treatment","Linezolid_time","Meropenem_time"),
+    output = "CLR_gen_new1", 
+    random_effects = c("Individual_ID"),
+    reference = c("Death,0"),
+    analysis_method = "LM",normalization = "clr",
+    transform = "NONE",correction = "BH",max_significance = 0.1,cores =6 )
+```
+
+## Alpha diversity
+library(lmerTest)
+library(parameters)
+library(sjPlot)
+model_alpha<- lmer(ts_shannon~Meropenem_time+Age + Gender + CORTICOSTEROID  + Treatment +COMORBIDITY+ Outcome28+Tazobactam_time+Moxifloxacin_time+Ceftazidime_time+Linezolid_time+(1|Individual_ID),data = mm)
+model_parameters(model_alpha)
+ll=filter(mm,Meropenem_time>0) %>% pull(Individual_ID) %>% unique
+tt=filter(mm,Individual_ID %in% ll)
+plot_model(model_alpha,type = "pred", terms = "Meropenem_time", show.data = F, value.offset = .1,color="#FAAB18") +
+    theme_bw() +
+    geom_hline(yintercept = 0, lwd=1, color="gray70")+
+  geom_point(data=tt,aes(x=Meropenem_time,y=ts_shannon),color="#FAAB18",size=2.4,alpha=0.6)+
+  geom_point(data=tt,aes(x=Meropenem_time,y=ts_shannon),color="#FAAB18",size=1.6,alpha=1)+
+  ylab("TS Shannon index")+
+    theme(axis.title = element_text(face = "bold"), 
+          plot.title = element_text(face = "bold"), 
+          legend.title = element_text(face = "bold")) 
+ll=filter(mm,Linezolid_time>0) %>% pull(Individual_ID) %>% unique
+tt=filter(mm,Individual_ID %in% ll)
+plot_model(model_alpha,type = "pred", terms = "Linezolid_time", show.data = F, value.offset = .1,color="#FAAB18") +
+    theme_bw() +
+    geom_hline(yintercept = 0, lwd=1, color="gray70")+
+  geom_point(data=tt,aes(x=Linezolid_time,y=ts_shannon),color="#FAAB18",size=2.4,alpha=0.6)+
+  geom_point(data=tt,aes(x=Linezolid_time,y=ts_shannon),color="#FAAB18",size=1.6,alpha=1)+
+  ylab("TS Shannon index")+
+    theme(axis.title = element_text(face = "bold"), 
+          plot.title = element_text(face = "bold"), 
+          legend.title = element_text(face = "bold")) 
+
+     
+model_alpha1<- lmer(gen_shannon~Age + Gender + CORTICOSTEROID  + Treatment +COMORBIDITY+ Outcome28+Tazobactam_time+Moxifloxacin_time+Ceftazidime_time+Meropenem_time+Linezolid_time+(1|Individual_ID),data = metadata1)
+model_parameters(model_alpha1)
+
+ll=filter(metadata1,Tazobactam_time>0) %>% pull(Individual_ID) %>% unique
+tt=filter(metadata1,Individual_ID %in% ll) %>% group_by("Individual_ID") %>% filter(Sample_date<Stop_Tazobactam_time)
+plot_model(model_alpha1,type = "pred", terms = "Tazobactam_time", show.data = F, value.offset = .1,color="#1380A1") +
+    theme_bw() +
+    geom_hline(yintercept = 0, lwd=1, color="gray70")+
+  geom_point(data=tt,aes(x=Tazobactam_time,y=gen_shannon),color="#1380A1",size=2.0,alpha=0.6)+
+  geom_point(data=tt,aes(x=Tazobactam_time,y=gen_shannon),color="#1380A1",size=1.4,alpha=0.85)+
+  ylab("AS Shannon index")+
+    theme(axis.title = element_text(face = "bold"), 
+          plot.title = element_text(face = "bold"), 
+          legend.title = element_text(face = "bold")) 
+
+ll=filter(metadata1,Ceftazidime_time>0) %>% pull(Individual_ID) %>% unique
+tt=filter(metadata1,Individual_ID %in% ll)
+plot_model(model_alpha1,type = "pred", terms = "Ceftazidime_time", show.data = F, value.offset = .1,color="#1380A1") +
+    theme_bw() +
+    geom_hline(yintercept = 0, lwd=1, color="gray70")+
+  geom_point(data=tt,aes(x=Ceftazidime_time,y=gen_shannon),color="#1380A1",size=2.4,alpha=0.6)+
+  geom_point(data=tt,aes(x=Ceftazidime_time,y=gen_shannon),color="#1380A1",size=1.6,alpha=1)+
+  ylab("AS Shannon index")+
+    theme(axis.title = element_text(face = "bold"), 
+          plot.title = element_text(face = "bold"), 
+          legend.title = element_text(face = "bold")) 
+
+
+
+
+df=rbind(plot_model(model_alpha)[[1]] %>% mutate(gg="TS"),plot_model(model_alpha1)[[1]] %>% mutate(gg="AS"))
+df=as.data.frame(df)
+ll=select(df,1,2,gg) %>% filter(gg=="TS") %>% arrange(desc(estimate)) %>% pull(term) %>% as.character()
+df$term=factor(df$term,levels = ll)
+ggplot(df,aes(term,estimate,color=gg))+
+    geom_pointrange(aes(ymin=conf.low,ymax=conf.high),size=1.1,position = position_dodge(width = 0.5))+
+    geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.4,
+                  size=1.5,position = position_dodge(width = 0.5))+
+    scale_color_manual(values = c("AS" = "#1380A1", "TS" = "#FAAB18"))+
+    geom_hline(yintercept = 0,linetype=2,size=1.3,color="grey55") +
+    theme_pubr()+
+    geom_text(aes(label=p.stars),size=13,position =position_dodge(width = 0.5))+
+    coord_flip()
+
+df=full_join(rownames_to_column(ts_df1,"tax"),rownames_to_column(genus2,"tax")) %>% column_to_rownames("tax")
+for (i in 1:nrow(mm)){
+    j=mm[i,"ss"]
+    z=mm[i,"Sample_ID"]
+    mm[i,"dist"] <-  JSD(select(df,j,z) %>% t) %>% as.numeric()
+}
+aa=lmer(dist~Age + Gender + CORTICOSTEROID  + Treatment +COMORBIDITY+ Outcome28+Tazobactam_time+Moxifloxacin_time+Ceftazidime_time+Meropenem_time+Linezolid_time+(1|Individual_ID),data = mm )
+model_parameters(aa)
+plot_model(aa,type = "pred", terms = "Tazobactam_time", show.data = F, value.offset = .1,color="#1380A1") +
+    theme_bw() +
+    geom_hline(yintercept = 0, lwd=1, color="gray70")+
+    theme(axis.title = element_text(face = "bold"), 
+          plot.title = element_text(face = "bold"), 
+
+```
+
+## GRiD
+
+```{r}
+df=right_join(metadata,GRiD) %>% filter(species=="Enterococcus_faecium") %>% group_by(Individual_ID) %>% mutate(n=n(),sd=sd(GRiD)) %>%filter(sd>0) %>%  filter(n>2)
+ggline(df,"sam2adm","GRiD",facet.by = "Individual_ID")
+
+ll=filter(metadata,Tazobactam==1) %>%.[,"Individual_ID"] %>% table() %>% .[.>1] %>% names()
+ll1=filter(metadata,Tazobactam=="1") %>% .[,1] %>% unique()
+ll2=filter(metadata,Tazobactam=="0") %>% .[,1] %>% unique()
+ll=intersect(ll,ll1) %>% intersect(.,ll2)
+df=filter(metadata,Tazobactam==1) %>% filter(Individual_ID %in% ll) %>% filter(Stop_Tazobactam_status=="Y") %>%  arrange(Individual_ID,sam2adm)
+df1=df %>% group_by(Individual_ID) %>% mutate(n=1:n()) %>% filter(max(n)>1) %>% filter(n==1|n==max(n)) %>% as.data.frame() 
+#df1$domain=genus_counts[CSTs[1],df1$Sample_ID]
+df2=filter(GRiD,species=="Enterococcus_faecium") %>% right_join(.,df1) %>% filter(!is.na(GRiD))%>%  arrange(Individual_ID,sam2adm) %>% group_by(Individual_ID) %>% filter(mean(GRiD)!=1 ) %>% mutate(n=1:n()) %>% filter(max(n)>1) %>% as.data.frame()
+ggpaired(df2,x="n",y="GRiD",id = "Individual_ID",fill = "n",palette = "npg",line.color = "gray50", line.size = 0.4,)+stat_compare_means(paired = T)+ylab("Replication rates")+xlab("Time point before stop using Tazobactam")
+
+df_grid_stop_antb$B1=NA
+df_grid_stop_antb$B2=NA
+for (i in 1:nrow(df_grid_stop_antb)) {
+GRiD %>% filter(species=="Bacteroides_fragilis",Sample_ID==df_grid_stop_antb[i,"T1"]) %>% pull(GRiD) %>% print()
+ GRiD %>%  filter(species=="Bacteroides_fragilis",Sample_ID==df_grid_stop_antb[i,"T2"]) %>% pull(GRiD)%>% print()
+ print(df_grid_stop_antb[i,"ID"])
+}
+
+ggpaired(df_grid_stop_antb ,"Time1","Time2",fill = "condition",palette = "npg",line.color = "gray50", line.size = 0.4,)+stat_compare_means(paired = T)+ylab("GRiD replication rates")+xlab("Time point before stop using Tazobactam")
+```
+
+## CARD ARGs
+
+```{r}
+
+ggscatter(metadata[colnames(card1),] %>% filter(Individual_ID %in% map_t1$Individual_ID),"ANTB_time","ARGs",facet.by = "Start_CST", color = "CST", add.params = list(color = "blue", fill = "lightgray"), # Customize reg. line
+          conf.int = TRUE,  add = "reg.line",# Add confidence interval
+          cor.coef = TRUE, # Add correlation coefficient. see ?stat_cor
+          cor.coeff.args = list(method = "spearman", label.sep = "\n"))
+
+
+
+df=corr.test(metadata[colnames(card1),"ARGs_ob"],genus[,colnames(card1)] %>% t,method = "spearman")
+df$r %>% t %>% as.data.frame() %>% arrange(V1) %>% filter(abs(V1)>0.4)
+
+df=card_cst %>% group_by(Drug_Class ,V2) %>% summarise(aa=mean(ratio)) %>% dcast(Drug_Class~V2,fill = 0) %>%column_to_rownames("Drug_Class")
+dd1=df
+dd2 <- dd1[order(rowSums(dd1), decreasing = T), ]
+dd3 <- dd2 %>%
+  as.data.frame() %>%
+  rownames_to_column("taxname")
+dd3$taxname[16:nrow(dd3)] <- "Others"
+dd4 <- dd3 %>%
+  group_by(taxname) %>%
+  summarise_each(funs = sum) %>%
+  as.data.frame()
+dd4$taxname <- factor(dd4$taxname, levels = rev(dd3$taxname[1:16]))
+dd4 <- dd4 %>% melt()
+dd4$variable=factor(dd4$variable,levels = CSTs[1:6])
+
+ggplot(dd4) +
+    geom_bar(aes(x = variable, y = value, fill = taxname), stat = "identity") +
+    scale_fill_manual(values = inlmisc::GetColors(16, scheme = "discrete rainbow") %>% as.character(), name = "Taxonomy") +
+    theme_bw() +theme(axis.text.x = element_text(angle = 45, hjust = 1,size=15), axis.ticks.x = element_blank(), plot.margin = unit(c(0, 0, 0, 0), "cm"))
+```
+
