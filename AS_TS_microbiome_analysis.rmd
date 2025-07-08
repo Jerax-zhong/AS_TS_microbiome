@@ -77,6 +77,52 @@ ggplot()+geom_bar(data=df,aes(x=Variable,y=R2,fill=group),stat="identity")+
   scale_fill_manual(values = c("AS" = "#1380A1", "TS" = "#FAAB18"))+xlab("R2")+ylim(-0.05,0.071)
 
 ```
+### PERMANOVA
+```
+ll=colnames(distance_genus)
+df=adonis2(distance_genus ~ Age + Gender + CORTICOSTEROID  + Treatment +COMORBIDITY+ Outcome28+Tazobactam_time+Moxifloxacin_time+Ceftazidime_time+Meropenem_time+Linezolid_time, metadata2[ll, ], permutations = 1000,by = "margin")
+
+mm=metadata1
+rownames(mm)=mm$ss
+ll=ts_df1 %>% colnames
+distance_genus_ts=JSD(t(ts_df1[,ll]))
+colnames(distance_genus_ts)=ll
+rownames(distance_genus_ts)=ll
+df1=adonis2(distance_genus_ts ~ Age + Gender + CORTICOSTEROID  + Treatment +COMORBIDITY+ Outcome28+Tazobactam_time+Moxifloxacin_time+Ceftazidime_time+Meropenem_time+Linezolid_time, mm[ll, ], permutations = 1000,by = "margin")
+df1=as.data.frame(df1) %>% filter(!is.na(F))
+df=as.data.frame(df) %>% filter(!is.na(F))
+df$group="AS"
+df1$group="TS"
+df1$R2=-df1$R2
+ll1=arrange(df1,desc(R2),) %>% pull(Variable) 
+df1$Variable=factor(df1$Variable,levels = ll1)
+df$Variable=factor(df$Variable,levels = ll1)
+df1$p=ifelse(df1$`Pr(>F)` < 0.001, "***", 
+                       ifelse(df1$`Pr(>F)` < 0.01, "**", 
+                              ifelse(df1$`Pr(>F)` < 0.05, "*", "")))
+df$p=ifelse(df$`Pr(>F)` < 0.001, "***", 
+                       ifelse(df$`Pr(>F)` < 0.01, "**", 
+                              ifelse(df$`Pr(>F)` < 0.05, "*", "")))
+library(bbplot)
+## PERMANOVA AS vs. TS
+p=ggplot()+geom_point(data=df,aes(x=Variable,y=R2,color=group),size=8,alpha=0.7)+
+  geom_point(data=df1,aes(x=Variable,y=R2,color=group),size=8,alpha=0.7)+
+  geom_point(data=df,aes(x=Variable,y=R2,color=group),size=5,alpha=0.9)+
+  geom_point(data=df1,aes(x=Variable,y=R2,color=group),size=5,alpha=0.9)+
+    geom_segment(data = df,aes(x=Variable,xend = Variable,y=0,yend =R2,color=group),size=3,alpha=0.6)+
+  geom_segment(data = df1,aes(x=Variable,xend = Variable,y=0,yend =R2,color=group),size=3,alpha=0.6)+
+  geom_hline(yintercept = 0,linetype=2,size=1.3,color="grey55")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1), axis.ticks.x = element_blank(), plot.margin = unit(c(0, 0, 0, 0), "cm"))+coord_flip()+bbc_style()+
+  scale_color_manual(values = c("AS" = "#1380A1", "TS" = "#FAAB18"))+xlab("R2")+ylim(-0.025,0.071)
+
+
+p=ggplot(data=rbind(df,df1),aes(x=Variable,y=R2))+geom_point(aes(color=group),size=6.5,alpha=0.85,position = position_dodge(width = 0.8)) +
+    geom_point(aes(color=group),size=4,alpha=1,position = position_dodge(width = 0.8)) +
+    geom_segment(aes(x=Variable,y=0,yend=R2,color=group),size=2,position = position_dodge(width = 0.8))+
+   geom_text(aes(label=p,color=group),size=14,position =position_dodge(width = 0.8 ))+
+    theme(axis.text.x = element_text(angle = 90, hjust = 1), axis.ticks.x = element_blank(), plot.margin = unit(c(0, 0, 0, 0), "cm"))+coord_flip()+bbc_style()+
+    scale_color_manual(values = c("AS" = "#1380A1", "TS" = "#FAAB18"))+xlab("R2")+  scale_fill_manual(values = c("AS" = "#1380A1", "TS" = "#FAAB18"))
+```
 
 ##MaAsLin2
 
@@ -228,6 +274,7 @@ GRiD %>% filter(species=="Bacteroides_fragilis",Sample_ID==df_grid_stop_antb[i,"
 }
 
 ggpaired(df_grid_stop_antb ,"Time1","Time2",fill = "condition",palette = "npg",line.color = "gray50", line.size = 0.4,)+stat_compare_means(paired = T)+ylab("GRiD replication rates")+xlab("Time point before stop using Tazobactam")
+
 ```
 
 ## CARD ARGs
@@ -264,4 +311,77 @@ ggplot(dd4) +
     scale_fill_manual(values = inlmisc::GetColors(16, scheme = "discrete rainbow") %>% as.character(), name = "Taxonomy") +
     theme_bw() +theme(axis.text.x = element_text(angle = 45, hjust = 1,size=15), axis.ticks.x = element_blank(), plot.margin = unit(c(0, 0, 0, 0), "cm"))
 ```
+### Strain transmission
 
+```{r}
+df=read.table(pipe("pbpaste"),header = T)
+df$Sample_date <- as.Date(df$Sample_date)
+df$Stop_Tazobactam_time <- as.Date(df$Stop_Tazobactam_time)
+df$Admission <- as.Date(df$Admission)
+df$Dischrge <- as.Date(df$Dischrge)
+df1=read.table(pipe("pbpaste"),header = T)
+df1$Sample_date <- as.Date(df1$Sample_date)
+df1$Admission <- as.Date(df1$Admission)
+df1$sam2adm <- df1$Sample_date-df1$Admission
+df$start <- df$sam2adm-df$Tazobactam_time
+df$end <- as.numeric(df$Stop_Tazobactam_time-df$Admission)
+
+ library(scatterpie)
+df3=read_clipboard()
+df3=df3 %>% group_by(Sample_ID) %>% mutate(ab=rapct/sum(rapct)*100)%>% dcast(Sample_ID~strain)
+df3[is.na(df3)]=0
+ll=c("4995_20","7150","BP5067","E7067","E8423","Ef_aus00233","ef332","ISMMS_VRE_1","NY13320","SRR24","V1164","ZY2")
+dd=rbind(select(df,ID, Sample_ID, Sample_date ,Individual_ID , Admission ,sam2adm),df1) %>% right_join(df3,.)
+dd$ID=as.factor(dd$ID)
+ggplot()+geom_segment(data=select(df,ID,start,end) %>% group_by(ID) %>% summarise(start=min(start),end=max(end)) %>% mutate(ii=gsub("P","",ID) %>% as.numeric()),aes(x=start,xend=end,y=ii,yend=ii),size=6,color="grey85",alpha=0.7)+geom_scatterpie(data= dd%>% mutate(ID1=gsub("P","",ID) %>% as.numeric() ) %>% na.omit(),aes(x=sam2adm,y=ID1,group=Sample_ID,r=0.46),cols = ll)+scale_fill_manual(values = c("grey81","grey82","grey83","grey84","grey85","#E64B35","#4DBBD5","#00A087","grey86","grey87","#3C5488","#F39B7F"))+ coord_equal()+theme_bw()+geom_point(data = dd %>% filter(is.na(SRR24)) %>% mutate(ID1=gsub("P","",ID) %>% as.numeric() ),aes(x=sam2adm,y=ID1,),shape=1,size=6.5,stroke = 0.9,fill="white")
+  
+
+
+df3_1 <- select(df,Sample_ID ,Individual_ID,sam2adm) %>% right_join(.,df3)
+df4=read_clipboard()
+ggplot()+
+  geom_segment(data=select(df,Individual_ID,start,end) %>% group_by(Individual_ID) %>% summarise(start=min(start),end=max(end)) %>% mutate(ii=as.numeric(as.factor(Individual_ID))),aes(x=start,xend=end,y=ii,yend=ii),size=6,color="grey85",alpha=0.7)+
+  geom_scatterpie(data= df3_1 ,aes(x=sam2adm,y=ii,group=Sample_ID,r=0.45),cols = ll)+scale_fill_manual(values = c("grey81","grey82","grey83","grey84","grey85","#E64B35","#4DBBD5","#00A087","grey86","grey87","#3C5488","#F39B7F"))+ coord_equal()+theme_bw()+theme(legend.position = "none")+geom_point(data = df4,aes(x=start,y=ii,),shape=1,size=6,stroke = 1,color="grey75")+geom_point(data = df1 %>% mutate(ii=as.numeric(as.factor(Individual_ID))),aes(x=sam2adm,y=ii,color=Strain),shape=4,size=1.8,stroke=1.8)
+
+
+ggplot()+geom_segment(data=select(df,Individual_ID,start,end) %>% group_by(Individual_ID) %>% summarise(start=min(start),end=max(end)),aes(x=start,xend=end,y=Individual_ID,yend=Individual_ID),size=6,color="grey85",alpha=0.7)+geom_point(data = df,aes(x=sam2adm,y=Individual_ID,),shape=1,size=6,stroke = 2,color="grey75")+
+  geom_point(data = df,aes(x=sam2adm,y=Individual_ID,color=Strain),shape=1,size=6,stroke = 2)+ theme_bw()+scale_color_npg()+
+  geom_point(data = df1,aes(x=sam2adm,y=Individual_ID,color=Strain),shape=4,size=1.8,stroke=1.8)
+ 
+
+
+```
+
+### Cytokine change with Enterococcus
+
+```{r}
+ll <- ts_df["Enterococcus",] %>% t %>%as.data.frame() %>%  filter(Enterococcus>0.05) %>% rownames() %>% gsub("_.*","",.) %>% unique()
+ll2=ts_df["Enterococcus",] %>% t %>%as.data.frame() %>%  filter(Enterococcus<0.05,Enterococcus>0.0010) %>% rownames() %>% gsub("_.*","",.) %>% unique()
+ll1 <- ts_df["Enterococcus",] %>% t %>%as.data.frame() %>%  filter(Enterococcus<0.001) %>% rownames() %>% gsub("_.*","",.) %>% unique() %>% setdiff(.,c(ll,ll2))
+tt <- cytokine %>% rownames_to_column("cytokine") %>% melt(variable.name = "Sample_ID") %>% right_join(select(metadata1,Sample_ID,Individual_ID,Death),.) %>% mutate(group=ifelse(Individual_ID %in% ll,"E. faecium positive",ifelse(Individual_ID %in%ll1 ,"E.faecium negative","other")))
+tt$Death=ifelse(tt$Death==1,"Deceased","Recovered")
+tt$group=factor(tt$group,levels = c("E.faecium negative","E. faecium positive","other"))
+ggboxplot(tt %>% filter(group!="other") %>% group_by(Individual_ID,cytokine,group) %>% summarize(value=max(value)) %>% mutate(value=log10(value)) %>% filter(cytokine %in% c("G.CSF","IFN.g","IL.10","IL.1b","IL.1ra","IL.6","IL.8","IL.10","IP.10","MCP.1.MCAF.","MIP.1a") ),"group","value",facet.by = "cytokine",order =c("E.faecium negative","E. faecium positive") ,
+          fill = "group",palette = "aaas")+stat_compare_means(,label = "p.signif")
+##. 13 patients with 8 deceased
+
+tt %>% filter(group!="other") %>% group_by(Individual_ID,cytokine,group) %>% summarize(value=max(value)) %>% mutate(value=log10(value)) %>% filter(cytokine %in% c("G.CSF","IFN.g","IL.10","IL.1b","IL.1ra","IL.6","IL.8","IL.10","IP.10","MCP.1.MCAF.","MIP.1a") ) %>% ggplot(.,aes(group,value,fill = group))+geom_boxplot()+facet_wrap(.~cytokine,scales = "free")+theme_bw()+scale_fill_aaas()
+
+```
+### PWY6470 changes 
+```{r}
+dd=microbiome::transform(pathway,"clr") %>% as.data.frame()
+ll=str_subset(rownames(dd),"6470")
+df=dd[ll,,drop=F] %>% rownames_to_column("tax") %>% melt(variable.name ="Sample_ID" ) %>% right_join(metadata1,.)
+df$group[df$Tazobactam_time==0]="Days=0"
+df$group[df$Tazobactam_time>0]="0<Days<3"
+df$group[df$Tazobactam_time>3]="4<Days<7"
+df$group[df$Tazobactam_time>7]="Days>7"
+df$group=factor(df$group,levels = c("Days=0","0<Days<3","4<Days<7","Days>7"))
+mm=list(c("Days=0" ,  "0<Days<3"),c("0<Days<3", "4<Days<7"),c("4<Days<7","Days>7" ))
+
+df %>% filter(!is.na(group)) %>% ggplot(.,aes(group,value,color= group))+geom_violin(aes(fill=group), linewidth = 1, alpha = .7,width=0.6) +scale_color_viridis_d()+geom_boxplot(outlier.alpha = 0, coef = 0,color = "white", size=0.8,width = .15,fill=NA) +theme_bw()+
+  stat_compare_means(comparisons = mm,label = "p.signif")+scale_fill_viridis_d()
+
+
+```
